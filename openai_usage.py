@@ -90,35 +90,46 @@ def fetch_costs():
         "start_time": start_time,
         "end_time": end_time,
         "bucket_width": BUCKET_WIDTH,
+        "group_by[]": "project_id",
+        "limit": 100,
     }
-    return get(url, params=params)
+
+    all_buckets = []
+    page = None
+
+    while True:
+        p = dict(params)
+        if page:
+            p["page"] = page
+
+        data = get(url, params=p)
+        all_buckets.extend(data.get("data", []))
+
+        if not data.get("has_more", False):
+            break
+        page = data.get("next_page")
+        if not page:
+            break
+
+    return {"data": all_buckets}
 
 
 def extract_project_costs(raw):
     totals = defaultdict(float)
 
     for bucket in raw.get("data", []):
-        results = bucket.get("results", [])
-        if not results and isinstance(bucket, dict):
-            results = [bucket]
+        for row in bucket.get("results", []):
+            project_id = row.get("project_id") or "unknown"
+            amount = row.get("amount", {})
+            if isinstance(amount, dict):
+                value = amount.get("value")
+            else:
+                value = amount
 
-        for row in results:
-            project_id = row.get("project_id") or row.get("project", {}).get("id") or "unknown"
-
-            amount = None
-            if isinstance(row.get("amount"), dict):
-                amount = row["amount"].get("value")
-            if amount is None:
-                amount = row.get("amount_value")
-            if amount is None:
-                amount = row.get("cost")
-            if amount is None:
-                amount = row.get("value")
-
-            if amount is None:
+            if value is None:
                 continue
 
-            totals[project_id] += float(amount)
+            totals[project_id] += float(value)
 
     return totals
 
